@@ -111,11 +111,17 @@ function catOf(id) { return CATS.find(c => c.re.test(id)).key; }
 function tierOf(id) { const m = id.match(/^T(\d)_/); return m ? 'T' + m[1] : ''; }
 function enchOf(id) { const m = id.match(/@(\d)$/); return m ? m[1] : '0'; }
 function ageTh(iso) {
-  const m = (Date.now() - new Date(iso).getTime()) / 60000;
-  if (m < 60) return [Math.max(1, Math.round(m)) + ' นาที', 'fresh'];
-  if (m < 1440) return [Math.round(m / 60) + ' ชม.', 'fresh'];
-  if (m < 10080) return [Math.round(m / 1440) + ' วัน', ''];
-  return [Math.round(m / 10080) + ' สัปดาห์', 'old'];
+  let m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return ['เมื่อกี้นี้', 'fresh'];
+  const cls = m < 1440 ? 'fresh' : (m < 10080 ? '' : 'old');
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  const mm = m % 60;
+  const parts = [];
+  if (d) parts.push(d + ' วัน');
+  if (h) parts.push(h + ' ชม.');
+  if (mm && !d) parts.push(mm + ' นาที'); // minutes not useful once it's days old
+  return [parts.join(' ') + 'ก่อน', cls];
 }
 
 /* ---------- data loading ---------- */
