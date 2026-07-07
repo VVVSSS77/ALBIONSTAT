@@ -28,9 +28,72 @@ const CATS = [
   { key: 'other',     label: 'อื่น ๆ',             ico: '\u{1F4E6}', re: /./ },
 ];
 
+// subcategories per category: first matching regex wins, otherwise "อื่น ๆ"
+const SUBCATS = {
+  raw: [
+    ['แร่', /_ORE/], ['ไม้', /_WOOD/], ['หนังดิบ', /_HIDE/], ['ใยพืช', /_FIBER/], ['หิน', /_ROCK/],
+  ],
+  refined: [
+    ['แท่งโลหะ', /METALBAR/], ['ไม้กระดาน', /PLANKS/], ['หนังฟอก', /LEATHER/], ['ผ้า', /CLOTH/], ['บล็อกหิน', /STONEBLOCK/],
+  ],
+  tools: [
+    ['อีเต้อขุดแร่', /_PICK/], ['ขวานตัดไม้', /TOOL_AXE/], ['มีดถลกหนัง', /KNIFE/], ['เคียวเกี่ยวใย', /SICKLE/],
+    ['ค้อนสกัดหิน', /TOOL_HAMMER/], ['เบ็ดตกปลา', /FISHINGROD/], ['ค้อนรื้อถอน', /DEMOLITION/],
+  ],
+  weapons: [
+    ['หน้าไม้', /CROSSBOW|BOLTCASTERS|SIEGEBOW/], ['ธนู', /BOW/],
+    ['ดาบ', /SWORD|CLAYMORE|SCIMITAR|CLARENT|GALATINE|KINGMAKER/],
+    ['ขวาน', /AXE|HALBERD|SCYTHE|CARRIONCALLER/],
+    ['กระบอง', /MACE|FLAIL|CAMLANN|OATHKEEPERS/], ['ค้อน', /HAMMER|GROVEKEEPER/],
+    ['ถุงมือต่อสู้', /KNUCKLES|FISTS/], ['หอก', /SPEAR|PIKE|GLAIVE|HARPOON|TRIDENT/],
+    ['มีดสั้น', /DAGGER|RAPIER|CLAWS|BLOODLETTER|DEATHGIVERS/],
+    ['พลอง', /QUARTERSTAFF|DOUBLEBLADED|IRONCLADED|COMBATSTAFF|TWINSCYTHE|GRAILSEEKER/],
+    ['ไม้เท้าไฟ', /FIRE|INFERNO|BRIMSTONE|BLAZING|DAWNSONG/],
+    ['ไม้เท้าน้ำแข็ง', /FROST|ICICLE|GLACIAL|PERMAFROST|CHILLHOWL|ICEBLOCK/],
+    ['ไม้เท้าอาร์เคน', /ARCANE|ENIGMATIC|WITCHWORK|OCCULT|MALEVOLENT|EVENSONG|MISTPIERCER/],
+    ['ไม้เท้าคำสาป', /CURSE|DEMONIC|SKULLORB|DAMNATION|SHADOWCALLER|CRYPTCANDLE/],
+    ['ไม้เท้าฮีล', /HOLY|DIVINE|LIFETOUCH|FALLEN|REDEMPTION|HALLOWFALL|EXALTED/],
+    ['ไม้เท้าธรรมชาติ', /NATURE|DRUIDIC|WILDSTAFF|RAMPANT|IRONROOT|BLIGHT|FORGEBARK/],
+    ['แปลงร่าง', /SHAPESHIFTER/],
+  ],
+  offhand: [
+    ['โล่', /SHIELD|SARCOPHAGUS|CAITIFF|FACEBREAKER|ASTRAL/], ['ตำราเวท', /BOOK|ORB|CENSER|EYE|MUISAK/],
+    ['คบเพลิง', /TORCH|MISTCALLER|LEERING|CRYPTCANDLE|SACRED/], ['เขาสัตว์/อื่น ๆ', /HORN|TOTEM|JESTER|TALISMAN/],
+  ],
+  armor: [
+    ['เกราะผ้า', /_(ARMOR|HEAD|SHOES)_CLOTH/], ['เกราะหนัง', /_(ARMOR|HEAD|SHOES)_LEATHER/],
+    ['เกราะเหล็ก', /_(ARMOR|HEAD|SHOES)_PLATE/], ['ชุดเก็บของ/ตกปลา', /GATHERER|FISHING/],
+  ],
+  accessory: [['กระเป๋า', /_BAG/], ['ผ้าคลุม', /_CAPE/]],
+  mount: [
+    ['ม้า', /HORSE/], ['วัว/ล่อขนของ', /_OX|MULE|DONKEY/], ['สัตว์ขี่พิเศษ', /./],
+  ],
+  food: [
+    ['ซุป', /SOUP/], ['สลัด', /SALAD/], ['พาย', /PIE/], ['ย่าง', /ROAST/],
+    ['สตูว์', /STEW/], ['แซนด์วิช', /SANDWICH/], ['ออมเล็ต', /OMELETTE/],
+  ],
+  potion: [
+    ['ฟื้นฟูเลือด', /HEAL/], ['พลังงาน', /ENERGY/], ['ร่างยักษ์', /GIGANTIFY/],
+    ['ต้านทาน', /RESISTANCE/], ['ล้างสถานะ', /CLEANSE/], ['สตันฟิลด์', /STONESKIN|SLOWFIELD/],
+  ],
+  fishing: [['ปลา', /^T\d_FISH/], ['เหยื่อตกปลา', /BAIT/], ['ซอส/ของแปรรูป', /FISHSAUCE|SEAWEED|FISHCHOPS/]],
+  farm: [['เมล็ดพืช', /_SEED/], ['ลูกสัตว์', /_BABY/], ['สัตว์โตแล้ว', /_GROWN/], ['ผลผลิต', /./]],
+  artifact: [
+    ['รูน', /RUNE/], ['โซล', /SOUL/], ['เรลิก', /RELIC/], ['เศษอวาโลเนียน', /SHARD/],
+    ['อาร์ติแฟกต์', /ARTEFACT/], ['เอสเซนส์', /ESSENCE/],
+  ],
+};
+const SUB_OTHER = 'อื่น ๆ';
+function subOf(catKey, id) {
+  const defs = SUBCATS[catKey];
+  if (!defs) return SUB_OTHER;
+  const hit = defs.find(([, re]) => re.test(id));
+  return hit ? hit[0] : SUB_OTHER;
+}
+
 let NAMES = {}, LATEST = [], DAILY = [], META = {};
 // list-view filter state
-let fType = 0, fTier = '', fEnch = '', fQual = 0;
+let fType = 0, fTier = '', fEnch = '', fQual = 0, fSub = '', lastCat = null;
 // detail-view state
 let dType = 0, dQual = 0;
 const MAX_ROWS = 300;
@@ -104,9 +167,11 @@ function renderHome() {
   for (const c of CATS) {
     const n = counts[c.key] ? counts[c.key].size : 0;
     if (c.key === 'other' && n === 0) continue;
+    const subs = (SUBCATS[c.key] || []).map(s => s[0]).slice(0, 4).join(' · ');
     html += `<div class="card" onclick="location.hash='#c/${c.key}'">
       <div class="ico">${c.ico}</div><div class="t">${c.label}</div>
-      <div class="n">${n ? n + ' ไอเทม' : 'ยังไม่มีข้อมูล'}</div></div>`;
+      <div class="n">${n ? n + ' ไอเทม' : 'ยังไม่มีข้อมูล'}</div>
+      ${subs ? `<div class="n sub">${subs}${(SUBCATS[c.key] || []).length > 4 ? ' ...' : ''}</div>` : ''}</div>`;
   }
   html += '</div>';
   html += `<div class="hint">รวม ${META.items} ไอเทมจากตลาดที่เก็บมากับมือ<br>เลือกหมวด หรือพิมพ์ค้นหาด้านบนได้เลย</div>`;
@@ -122,6 +187,7 @@ function chipRow(label, defs, cur, setter) {
 function renderList(opts) {
   window._listOpts = opts;
   const cat = CATS.find(c => c.key === opts.cat);
+  if ((cat ? cat.key : null) !== lastCat) { fSub = ''; lastCat = cat ? cat.key : null; }
   const query = (opts.query || '').toLowerCase();
 
   const match = id => {
@@ -129,8 +195,22 @@ function renderList(opts) {
     if (query && !id.toLowerCase().includes(query) && !nameOf(id).toLowerCase().includes(query)) return false;
     if (fTier && tierOf(id) !== fTier) return false;
     if (fEnch !== '' && enchOf(id) !== fEnch) return false;
+    if (cat && fSub && subOf(cat.key, id) !== fSub) return false;
     return true;
   };
+
+  // which subcategories actually have items (within category + search only)
+  const subCounts = new Map();
+  if (cat && SUBCATS[cat.key]) {
+    const seen = new Set();
+    for (const r of LATEST) {
+      if (seen.has(r.id) || catOf(r.id) !== cat.key) continue;
+      if (query && !r.id.toLowerCase().includes(query) && !nameOf(r.id).toLowerCase().includes(query)) continue;
+      seen.add(r.id);
+      const s = subOf(cat.key, r.id);
+      subCounts.set(s, (subCounts.get(s) || 0) + 1);
+    }
+  }
 
   const byItem = new Map();
   for (const r of LATEST) {
@@ -146,6 +226,14 @@ function renderList(opts) {
 
   const title = cat ? `${cat.ico} ${cat.label}` : `ผลค้นหา "${esc(opts.query || '')}"`;
   let html = `<div class="crumb"><a href="#">หน้าแรก</a> / ${title}</div>`;
+  if (cat && SUBCATS[cat.key]) {
+    const defs = [['ทั้งหมด', '']];
+    for (const [label] of SUBCATS[cat.key]) {
+      if (subCounts.has(label)) defs.push([`${label} (${subCounts.get(label)})`, label]);
+    }
+    if (subCounts.has(SUB_OTHER)) defs.push([`${SUB_OTHER} (${subCounts.get(SUB_OTHER)})`, SUB_OTHER]);
+    if (defs.length > 2) html += chipRow('หมวดย่อย', defs, fSub, 'setSub');
+  }
   html += chipRow('ประเภท', [['ราคาขาย', 0], ['รับซื้อ', 1]], fType, 'setType');
   html += chipRow('Tier', [['ทั้งหมด', ''], ...[1,2,3,4,5,6,7,8].map(t => ['T' + t, 'T' + t])], fTier, 'setTier');
   html += chipRow('Enchant', [['ทั้งหมด', ''], ['.0', '0'], ['.1', '1'], ['.2', '2'], ['.3', '3'], ['.4', '4']], fEnch, 'setEnch');
@@ -176,6 +264,7 @@ function renderList(opts) {
   $('#app').innerHTML = html;
 }
 window.setType = v => { fType = Number(v); renderList(window._listOpts); };
+window.setSub = v => { fSub = v; renderList(window._listOpts); };
 window.setTier = v => { fTier = v; renderList(window._listOpts); };
 window.setEnch = v => { fEnch = v; renderList(window._listOpts); };
 window.setQual = v => { fQual = Number(v); renderList(window._listOpts); };
