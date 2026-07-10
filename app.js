@@ -419,7 +419,7 @@ try {
 } catch {}
 let cRecipes = [];
 try { cRecipes = JSON.parse(localStorage.craft_recipes || '[]'); } catch {}
-let cProd = '', cMats = [{ id: '', qty: 1, price: '' }];
+let cProd = '', cProdName = '', cMats = [{ id: '', name: '', qty: 1, price: '' }];
 let cEd = { qty: 10, sell: '', art: 0, fee: 0, name: '' };
 
 let OFFER = null; // 'id|loc' -> { p: lowest sell offer (any quality), ts }
@@ -443,23 +443,28 @@ function settVals() {
 }
 
 // cost/item = returnable mats * (1 + buy-order setup fee) * (1 - return rate) + artifact + station fee
+// a material row counts whenever it has a price (typed or auto) — picking from the list is not required
 function craftCalc(mats, art, fee, sellManual, prodId) {
   const s = settVals();
   let mat = 0; const miss = [];
-  for (const m of mats) {
-    if (!m.id) continue;
-    const auto = s.manual ? null : offerOf(m.id, s.buy);
+  mats.forEach((m, i) => {
+    const label = m.id ? nameOf(m.id) : ((m.name || '').trim() || null);
+    const auto = (!s.manual && m.id) ? offerOf(m.id, s.buy) : null;
     const p = (m.price !== '' && m.price != null) ? Number(m.price) : (auto ? auto.p : null);
-    if (p == null) { miss.push(nameOf(m.id)); continue; }
-    mat += (Number(m.qty) || 0) * p;
-  }
+    if (!label && p == null) return; // truly empty row
+    if (p == null) { miss.push(label || ('วัตถุดิบ ' + (i + 1))); return; }
+    const qty = Number(m.qty) || 0;
+    if (!qty) { miss.push((label || ('วัตถุดิบ ' + (i + 1))) + ' (จำนวน = 0)'); return; }
+    mat += qty * p;
+  });
+  const buyFee = mat * s.buyfee * (1 - s.ret);
   const cost = mat * (1 + s.buyfee) * (1 - s.ret) + (Number(art) || 0) + (Number(fee) || 0);
   const cut = 1 - s.tax - s.setup;
   const autoSell = (!s.manual && prodId) ? offerOf(prodId, s.sellc) : null;
   const sp = (sellManual !== '' && sellManual != null) ? Number(sellManual) : (autoSell ? autoSell.p : null);
-  if (sp == null && prodId) miss.push('ราคาขาย ' + nameOf(prodId));
+  if (sp == null && (mat > 0 || prodId)) miss.push('ราคาที่จะตั้งขาย');
   const net = sp != null ? sp * cut : null;
-  return { cost, sp, net, profit: net != null ? net - cost : null, be: cut > 0 ? cost / cut : null, miss };
+  return { cost, sp, net, buyFee, profit: net != null ? net - cost : null, be: cut > 0 ? cost / cut : null, miss };
 }
 
 function acAttach(inp, onpick) {
@@ -521,7 +526,7 @@ function renderCraft() {
   <div class="panelbox"><h2>สูตรคราฟ</h2>
     <div class="cform">
       <label class="cf acwrap">ไอเทมที่จะคราฟ <input id="kProd" style="width:270px" autocomplete="off"
-        placeholder="พิมพ์ชื่อหรือรหัส เช่น bow, T4_2H_BOW" value="${cProd ? esc(nameOf(cProd)) : ''}"></label>
+        placeholder="พิมพ์ชื่ออะไรก็ได้" value="${cProd ? esc(nameOf(cProd)) : esc(cProdName)}"></label>
       <label class="cf">จำนวนที่คราฟ <input class="num" id="kQty" type="number" min="1" value="${esc(String(cEd.qty))}"></label>
       <label class="cf">ราคาที่จะตั้งขาย/ชิ้น <input class="num" id="kSellP" type="number" placeholder="กรอกราคา" value="${esc(String(cEd.sell))}"></label>
       <label class="cf">ค่า artifact/ครั้ง <input class="num" id="kArt" type="number" value="${esc(String(cEd.art))}"></label>
@@ -566,7 +571,9 @@ function renderCraft() {
       `<label class="cf">${label} <span class="v ${cls || ''}">${val}</span></label>`;
     S('kOut').innerHTML =
       kpi('ต้นทุน/ชิ้น', fmt(Math.round(r.cost))) +
+      kpi('fee ซื้อ/ชิ้น', fmt(Math.round(r.buyFee))) +
       kpi('ราคาขายที่ใช้', r.sp != null ? fmt(r.sp) : '-') +
+      kpi('ภาษี+fee ขาย/ชิ้น', r.net != null ? fmt(Math.round(r.sp - r.net)) : '-') +
       kpi('รับสุทธิ/ชิ้น', r.net != null ? fmt(Math.round(r.net)) : '-') +
       kpi('กำไร/ชิ้น', r.profit != null ? fmt(Math.round(r.profit)) : '-', r.profit != null ? pc(r.profit) : '') +
       kpi('กำไรรวม x' + qty, r.profit != null ? fmt(Math.round(r.profit * qty)) : '-', r.profit != null ? pc(r.profit) : '') +
@@ -589,10 +596,11 @@ function renderCraft() {
         '<span class="autop"></span>' +
         '<button class="btn ghost mini">ลบ</button>';
       const [nameIn, qtyIn, priceIn] = row.querySelectorAll('input');
-      nameIn.value = m.id ? nameOf(m.id) : '';
+      nameIn.value = m.id ? nameOf(m.id) : (m.name || '');
       qtyIn.value = m.qty;
       priceIn.value = m.price;
-      acAttach(nameIn, id => { m.id = id; updateOut(); });
+      nameIn.addEventListener('input', () => { m.name = nameIn.value; m.id = ''; updateOut(); });
+      acAttach(nameIn, id => { m.id = id; m.name = nameIn.value; updateOut(); });
       qtyIn.addEventListener('input', () => { m.qty = qtyIn.value; updateOut(); });
       priceIn.addEventListener('input', () => { m.price = priceIn.value; updateOut(); });
       row.querySelector('button').onclick = () => { cMats.splice(i, 1); renderMatRows(); updateOut(); };
@@ -609,7 +617,7 @@ function renderCraft() {
       const r = craftCalc(rc.mats, rc.art, rc.fee, rc.sell, rc.prod);
       const cls = r.profit > 0 ? 'pos' : (r.profit < 0 ? 'neg' : '');
       html += `<tr><td>${esc(rc.name)}</td>` +
-        `<td>${rc.prod ? esc(nameOf(rc.prod)) : '-'}</td>` +
+        `<td>${rc.prod ? esc(nameOf(rc.prod)) : (rc.prodName ? esc(rc.prodName) : '-')}</td>` +
         `<td>${fmt(Math.round(r.cost))}</td>` +
         `<td>${r.sp != null ? fmt(r.sp) : '-'}</td>` +
         `<td class="${cls}">${r.profit != null ? fmt(Math.round(r.profit)) : '-'}</td>` +
@@ -635,13 +643,14 @@ function renderCraft() {
   bindEd('kQty', 'qty'); bindEd('kSellP', 'sell'); bindEd('kArt', 'art'); bindEd('kFee', 'fee');
   S('kName').addEventListener('input', () => { cEd.name = S('kName').value; });
 
-  acAttach(S('kProd'), id => { cProd = id; updateOut(); });
-  S('kAddMat').onclick = () => { cMats.push({ id: '', qty: 1, price: '' }); renderMatRows(); };
+  S('kProd').addEventListener('input', () => { cProdName = S('kProd').value; cProd = ''; updateOut(); });
+  acAttach(S('kProd'), id => { cProd = id; cProdName = S('kProd').value; updateOut(); });
+  S('kAddMat').onclick = () => { cMats.push({ id: '', name: '', qty: 1, price: '' }); renderMatRows(); };
   S('kSave').onclick = () => {
-    if (!cProd && !cMats.some(m => m.id)) return;
-    const name = cEd.name.trim() || (cProd ? nameOf(cProd) : 'สูตร ' + (cRecipes.length + 1));
-    cRecipes.push({ name, prod: cProd, sell: cEd.sell, art: cEd.art, fee: cEd.fee,
-                    mats: cMats.map(m => ({ id: m.id, qty: m.qty, price: m.price })) });
+    if (!cProd && !cProdName.trim() && !cMats.some(m => m.id || (m.name || '').trim() || m.price !== '')) return;
+    const name = cEd.name.trim() || (cProd ? nameOf(cProd) : (cProdName.trim() || 'สูตร ' + (cRecipes.length + 1)));
+    cRecipes.push({ name, prod: cProd, prodName: cProdName, sell: cEd.sell, art: cEd.art, fee: cEd.fee,
+                    mats: cMats.map(m => ({ id: m.id, name: m.name || '', qty: m.qty, price: m.price })) });
     localStorage.craft_recipes = JSON.stringify(cRecipes);
     cEd.name = ''; S('kName').value = '';
     renderRecipesTbl();
@@ -656,8 +665,9 @@ function renderCraft() {
     } else if (b.dataset.act === 'load') {
       const rc = cRecipes[i];
       cProd = rc.prod;
+      cProdName = rc.prodName || '';
       cEd = { qty: cEd.qty, sell: rc.sell, art: rc.art, fee: rc.fee, name: rc.name };
-      cMats = rc.mats.map(m => ({ id: m.id, qty: m.qty, price: m.price }));
+      cMats = rc.mats.map(m => ({ id: m.id, name: m.name || '', qty: m.qty, price: m.price }));
       renderCraft();
     }
   });
