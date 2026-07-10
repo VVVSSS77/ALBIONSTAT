@@ -151,6 +151,7 @@ function route() {
   if (h.startsWith('#i/')) return renderDetail(h.slice(3));
   if (h.startsWith('#c/')) return renderList({ cat: h.slice(3) });
   if (h.startsWith('#q/')) return renderList({ query: h.slice(3) });
+  if (h === '#craft') return renderCraft();
   renderHome();
 }
 window.addEventListener('hashchange', route);
@@ -170,6 +171,10 @@ function renderHome() {
     (counts[c] = counts[c] || new Set()).add(r.id);
   }
   let html = '<div class="grid">';
+  html += `<div class="card" onclick="location.hash='#craft'">
+    <div class="ico">\u{1F6E0}️</div><div class="t">คำนวณคราฟ</div>
+    <div class="n">ต้นทุน กำไร ราคาคุ้มทุน</div>
+    <div class="n sub">ใช้ราคาตลาดล่าสุด · บันทึกสูตรได้</div></div>`;
   for (const c of CATS) {
     const n = counts[c.key] ? counts[c.key].size : 0;
     if (c.key === 'other' && n === 0) continue;
@@ -397,6 +402,250 @@ function drawChart(id) {
     ctx.stroke();
     legend.innerHTML += `<span><span class="dot" style="background:${color}"></span>${CITY[line.loc] || '#' + line.loc}</span>`;
   }
+}
+
+/* ---------- craft profit calculator ---------- */
+const RET_OPTS = [
+  ['0.152', '15.2% - ไม่มีโบนัส'], ['0.248', '24.8% - เมืองโบนัสคราฟ'],
+  ['0.367', '36.7% - Hideout + power'], ['0.435', '43.5% - ใช้ Focus'],
+  ['0.539', '53.9% - Focus + เมืองโบนัส'], ['custom', 'กำหนดเอง...'],
+];
+let cSet = { ret: '0.248', retc: '24.8', tax: '0.04', setup: '0.025', buy: '3008', sellc: '3008' };
+try { Object.assign(cSet, JSON.parse(localStorage.craft_settings || '{}')); } catch {}
+let cRecipes = [];
+try { cRecipes = JSON.parse(localStorage.craft_recipes || '[]'); } catch {}
+let cProd = '', cMats = [{ id: '', qty: 1, price: '' }];
+let cEd = { qty: 10, sell: '', art: 0, fee: 0, name: '' };
+
+let OFFER = null; // 'id|loc' -> { p: lowest sell offer (any quality), ts }
+function offerOf(id, loc) {
+  if (!OFFER) {
+    OFFER = new Map();
+    for (const r of LATEST) {
+      if (r.type !== 0) continue;
+      const k = r.id + '|' + r.loc;
+      const cur = OFFER.get(k);
+      if (!cur || r.price < cur.p) OFFER.set(k, { p: r.price, ts: r.ts });
+    }
+  }
+  return OFFER.get(id + '|' + Number(loc)) || null;
+}
+
+function settVals() {
+  const ret = cSet.ret === 'custom' ? (Number(cSet.retc) || 0) / 100 : Number(cSet.ret);
+  return { ret, tax: Number(cSet.tax), setup: Number(cSet.setup), buy: Number(cSet.buy), sellc: Number(cSet.sellc) };
+}
+
+// cost/item = returnable mats * (1 - return rate) + artifact + station fee
+function craftCalc(mats, art, fee, sellManual, prodId) {
+  const s = settVals();
+  let mat = 0; const miss = [];
+  for (const m of mats) {
+    if (!m.id) continue;
+    const auto = offerOf(m.id, s.buy);
+    const p = (m.price !== '' && m.price != null) ? Number(m.price) : (auto ? auto.p : null);
+    if (p == null) { miss.push(nameOf(m.id)); continue; }
+    mat += (Number(m.qty) || 0) * p;
+  }
+  const cost = mat * (1 - s.ret) + (Number(art) || 0) + (Number(fee) || 0);
+  const cut = 1 - s.tax - s.setup;
+  const autoSell = prodId ? offerOf(prodId, s.sellc) : null;
+  const sp = (sellManual !== '' && sellManual != null) ? Number(sellManual) : (autoSell ? autoSell.p : null);
+  if (sp == null && prodId) miss.push('ราคาขาย ' + nameOf(prodId));
+  const net = sp != null ? sp * cut : null;
+  return { cost, sp, net, profit: net != null ? net - cost : null, be: cut > 0 ? cost / cut : null, miss };
+}
+
+function acAttach(inp, onpick) {
+  let box = null;
+  const close = () => { if (box) { box.remove(); box = null; } };
+  inp.addEventListener('input', () => {
+    close();
+    const q = inp.value.trim().toLowerCase();
+    if (q.length < 2) return;
+    const hits = [];
+    for (const id in NAMES) {
+      if (id.toLowerCase().includes(q) || NAMES[id].toLowerCase().includes(q)) {
+        hits.push(id);
+        if (hits.length >= 15) break;
+      }
+    }
+    const raw = inp.value.trim().toUpperCase();
+    if (!hits.length && raw.includes('_')) hits.push(raw); // raw ids incl. enchants (@1)
+    if (!hits.length) return;
+    box = document.createElement('div'); box.className = 'aclist';
+    for (const id of hits) {
+      const d = document.createElement('div');
+      d.innerHTML = `<b>${esc(NAMES[id] || id)}</b> <span class="iid">${esc(id)}</span>`;
+      d.onmousedown = e => { e.preventDefault(); inp.value = NAMES[id] || id; onpick(id); close(); };
+      box.appendChild(d);
+    }
+    inp.parentElement.appendChild(box);
+  });
+  inp.addEventListener('blur', () => setTimeout(close, 150));
+}
+
+function renderCraft() {
+  const retOptions = RET_OPTS.map(([v, t]) =>
+    `<option value="${v}" ${cSet.ret === v ? 'selected' : ''}>${t}</option>`).join('');
+  const cityOptions = sel => CITY_ORDER.map(l =>
+    `<option value="${l}" ${String(sel) === String(l) ? 'selected' : ''}>${CITY[l]}</option>`).join('');
+
+  $('#app').innerHTML = `
+  <div class="crumb"><a href="#">หน้าแรก</a> / \u{1F6E0}️ คำนวณคราฟ</div>
+  <div class="panelbox"><h2>ตั้งค่าการคำนวณ</h2><div class="cform">
+    <label class="cf">Return rate <select id="kRet">${retOptions}</select></label>
+    <label class="cf" id="kRetCW" style="display:${cSet.ret === 'custom' ? '' : 'none'}">Return rate (%)
+      <input class="num" id="kRetC" type="number" step="0.1" min="0" max="90" value="${esc(String(cSet.retc))}"></label>
+    <label class="cf">ภาษีขาย <select id="kTax">
+      <option value="0.04" ${cSet.tax === '0.04' ? 'selected' : ''}>4% (Premium)</option>
+      <option value="0.08" ${cSet.tax === '0.08' ? 'selected' : ''}>8% (ไม่มี Premium)</option></select></label>
+    <label class="cf">วิธีขาย <select id="kSetup">
+      <option value="0.025" ${cSet.setup === '0.025' ? 'selected' : ''}>ตั้งขาย (+2.5% setup fee)</option>
+      <option value="0" ${cSet.setup === '0' ? 'selected' : ''}>ขายทันทีเข้า buy order</option></select></label>
+    <label class="cf">เมืองซื้อวัตถุดิบ <select id="kBuy">${cityOptions(cSet.buy)}</select></label>
+    <label class="cf">เมืองขายของ <select id="kSell">${cityOptions(cSet.sellc)}</select></label>
+  </div></div>
+  <div class="panelbox"><h2>สูตรคราฟ</h2>
+    <div class="cform">
+      <label class="cf acwrap">ไอเทมที่จะคราฟ <input id="kProd" style="width:270px" autocomplete="off"
+        placeholder="พิมพ์ชื่อหรือรหัส เช่น bow, T4_2H_BOW" value="${cProd ? esc(nameOf(cProd)) : ''}"></label>
+      <label class="cf">จำนวนที่คราฟ <input class="num" id="kQty" type="number" min="1" value="${esc(String(cEd.qty))}"></label>
+      <label class="cf">ราคาขาย/ชิ้น <input class="num" id="kSellP" type="number" placeholder="อัตโนมัติ" value="${esc(String(cEd.sell))}"></label>
+      <label class="cf">ค่า artifact/ครั้ง <input class="num" id="kArt" type="number" value="${esc(String(cEd.art))}"></label>
+      <label class="cf">ค่าสถานีคราฟ/ครั้ง <input class="num" id="kFee" type="number" value="${esc(String(cEd.fee))}"></label>
+    </div>
+    <div id="kMats"></div>
+    <div style="margin-top:12px"><button class="btn ghost" id="kAddMat">+ เพิ่มวัตถุดิบ</button></div>
+    <div class="kpis" id="kOut"></div><div class="cwarn" id="kWarn"></div>
+    <div style="margin-top:16px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+      <label class="cf">ชื่อสูตร <input id="kName" style="width:220px" value="${esc(String(cEd.name))}"></label>
+      <button class="btn" id="kSave">บันทึกสูตร</button>
+    </div>
+  </div>
+  <div class="panelbox"><h2>สูตรที่บันทึกไว้ (คำนวณด้วยราคาล่าสุดเสมอ)</h2><div id="kRecipes"></div></div>
+  <div class="hint" style="padding:10px 20px 0">ราคาวัตถุดิบ = ราคาขายต่ำสุดในเมืองที่เลือก ณ ข้อมูลล่าสุดของเว็บ | พิมพ์ราคาเองทับได้ทุกช่อง | สูตรบันทึกไว้ในเครื่องคุณเท่านั้น</div>`;
+
+  const S = id => document.getElementById(id);
+  const saveSet = () => { localStorage.craft_settings = JSON.stringify(cSet); };
+
+  function updateOut() {
+    const s = settVals();
+    // auto-price hints on material rows
+    [...S('kMats').children].forEach((row, i) => {
+      const hint = row.querySelector('.autop');
+      const m = cMats[i];
+      if (!hint || !m) return;
+      const ap = m.id ? offerOf(m.id, s.buy) : null;
+      hint.textContent = m.id ? (ap ? 'ตลาด: ' + fmt(ap.p) : 'ไม่มีราคาในข้อมูล') : '';
+    });
+    const apSell = cProd ? offerOf(cProd, s.sellc) : null;
+    S('kSellP').placeholder = apSell ? fmt(apSell.p) : 'อัตโนมัติ';
+
+    const qty = Number(cEd.qty) || 1;
+    const r = craftCalc(cMats, cEd.art, cEd.fee, cEd.sell, cProd);
+    const pc = v => v > 0 ? 'pos' : (v < 0 ? 'neg' : '');
+    const kpi = (label, val, cls) =>
+      `<label class="cf">${label} <span class="v ${cls || ''}">${val}</span></label>`;
+    S('kOut').innerHTML =
+      kpi('ต้นทุน/ชิ้น', fmt(Math.round(r.cost))) +
+      kpi('ราคาขายที่ใช้', r.sp != null ? fmt(r.sp) : '-') +
+      kpi('รับสุทธิ/ชิ้น', r.net != null ? fmt(Math.round(r.net)) : '-') +
+      kpi('กำไร/ชิ้น', r.profit != null ? fmt(Math.round(r.profit)) : '-', r.profit != null ? pc(r.profit) : '') +
+      kpi('กำไรรวม x' + qty, r.profit != null ? fmt(Math.round(r.profit * qty)) : '-', r.profit != null ? pc(r.profit) : '') +
+      kpi('Margin', r.profit != null && r.cost > 0 ? (100 * r.profit / r.cost).toFixed(1) + '%' : '-') +
+      kpi('ราคาคุ้มทุน', r.be != null ? fmt(Math.ceil(r.be)) : '-');
+    S('kWarn').textContent = r.miss.length
+      ? 'ไม่มีราคาของ: ' + r.miss.join(', ') + ' (กรอกราคาเองได้)' : '';
+  }
+
+  function renderMatRows() {
+    const wrap = S('kMats');
+    wrap.innerHTML = '';
+    cMats.forEach((m, i) => {
+      const row = document.createElement('div'); row.className = 'mrow';
+      row.innerHTML =
+        `<label class="cf acwrap">วัตถุดิบ ${i + 1} <input style="width:250px" autocomplete="off" placeholder="พิมพ์ชื่อหรือรหัส"></label>` +
+        '<label class="cf">จำนวน/ครั้ง <input class="num" type="number" min="0"></label>' +
+        '<label class="cf">ราคา/หน่วย <input class="num" type="number" placeholder="อัตโนมัติ"></label>' +
+        '<span class="autop"></span>' +
+        '<button class="btn ghost mini">ลบ</button>';
+      const [nameIn, qtyIn, priceIn] = row.querySelectorAll('input');
+      nameIn.value = m.id ? nameOf(m.id) : '';
+      qtyIn.value = m.qty;
+      priceIn.value = m.price;
+      acAttach(nameIn, id => { m.id = id; updateOut(); });
+      qtyIn.addEventListener('input', () => { m.qty = qtyIn.value; updateOut(); });
+      priceIn.addEventListener('input', () => { m.price = priceIn.value; updateOut(); });
+      row.querySelector('button').onclick = () => { cMats.splice(i, 1); renderMatRows(); updateOut(); };
+      wrap.appendChild(row);
+    });
+  }
+
+  function renderRecipesTbl() {
+    const el = S('kRecipes');
+    if (!cRecipes.length) { el.innerHTML = '<span class="autop">ยังไม่มีสูตรที่บันทึกไว้</span>'; return; }
+    let html = '<div class="tablewrap"><table><thead><tr><th>สูตร</th><th>ไอเทม</th><th>ต้นทุน/ชิ้น</th>' +
+               '<th>ขาย/ชิ้น</th><th>กำไร/ชิ้น</th><th>Margin</th><th>คุ้มทุน</th><th></th></tr></thead><tbody>';
+    cRecipes.forEach((rc, i) => {
+      const r = craftCalc(rc.mats, rc.art, rc.fee, rc.sell, rc.prod);
+      const cls = r.profit > 0 ? 'pos' : (r.profit < 0 ? 'neg' : '');
+      html += `<tr><td>${esc(rc.name)}</td>` +
+        `<td>${rc.prod ? esc(nameOf(rc.prod)) : '-'}</td>` +
+        `<td>${fmt(Math.round(r.cost))}</td>` +
+        `<td>${r.sp != null ? fmt(r.sp) : '-'}</td>` +
+        `<td class="${cls}">${r.profit != null ? fmt(Math.round(r.profit)) : '-'}</td>` +
+        `<td>${r.profit != null && r.cost > 0 ? (100 * r.profit / r.cost).toFixed(1) + '%' : '-'}</td>` +
+        `<td>${r.be != null ? fmt(Math.ceil(r.be)) : '-'}</td>` +
+        `<td><button class="btn ghost mini" data-act="load" data-i="${i}">แก้ไข</button> ` +
+        `<button class="btn ghost mini" data-act="del" data-i="${i}">ลบ</button></td></tr>`;
+    });
+    el.innerHTML = html + '</tbody></table></div>';
+  }
+
+  const bindSet = (id, key, after) => S(id).addEventListener('input', () => {
+    cSet[key] = S(id).value; saveSet();
+    if (after) after();
+    updateOut(); renderRecipesTbl();
+  });
+  bindSet('kRet', 'ret', () => { S('kRetCW').style.display = cSet.ret === 'custom' ? '' : 'none'; });
+  bindSet('kRetC', 'retc'); bindSet('kTax', 'tax'); bindSet('kSetup', 'setup');
+  bindSet('kBuy', 'buy'); bindSet('kSell', 'sellc');
+
+  const bindEd = (id, key) => S(id).addEventListener('input', () => { cEd[key] = S(id).value; updateOut(); });
+  bindEd('kQty', 'qty'); bindEd('kSellP', 'sell'); bindEd('kArt', 'art'); bindEd('kFee', 'fee');
+  S('kName').addEventListener('input', () => { cEd.name = S('kName').value; });
+
+  acAttach(S('kProd'), id => { cProd = id; updateOut(); });
+  S('kAddMat').onclick = () => { cMats.push({ id: '', qty: 1, price: '' }); renderMatRows(); };
+  S('kSave').onclick = () => {
+    if (!cProd && !cMats.some(m => m.id)) return;
+    const name = cEd.name.trim() || (cProd ? nameOf(cProd) : 'สูตร ' + (cRecipes.length + 1));
+    cRecipes.push({ name, prod: cProd, sell: cEd.sell, art: cEd.art, fee: cEd.fee,
+                    mats: cMats.map(m => ({ id: m.id, qty: m.qty, price: m.price })) });
+    localStorage.craft_recipes = JSON.stringify(cRecipes);
+    cEd.name = ''; S('kName').value = '';
+    renderRecipesTbl();
+  };
+  S('kRecipes').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const i = Number(b.dataset.i);
+    if (b.dataset.act === 'del') {
+      cRecipes.splice(i, 1);
+      localStorage.craft_recipes = JSON.stringify(cRecipes);
+      renderRecipesTbl();
+    } else if (b.dataset.act === 'load') {
+      const rc = cRecipes[i];
+      cProd = rc.prod;
+      cEd = { qty: cEd.qty, sell: rc.sell, art: rc.art, fee: rc.fee, name: rc.name };
+      cMats = rc.mats.map(m => ({ id: m.id, qty: m.qty, price: m.price }));
+      renderCraft();
+    }
+  });
+
+  renderMatRows();
+  updateOut();
+  renderRecipesTbl();
 }
 
 boot();

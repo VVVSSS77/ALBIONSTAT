@@ -86,6 +86,39 @@ canvas { width: 100%; height: 260px; display: block; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; color: var(--muted); }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 5px; }
 
+/* craft calculator */
+.navlink { color: var(--text); text-decoration: none; font-size: 14px; white-space: nowrap; }
+.navlink:hover { color: var(--accent); }
+.cform { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.cf { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.cf input, .cf select {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 14px; outline: none;
+}
+.cf input:focus, .cf select:focus { border-color: var(--accent); }
+.cf input.num { width: 110px; text-align: right; }
+.mrow { display: flex; gap: 10px; margin-top: 10px; align-items: flex-end; flex-wrap: wrap; }
+.acwrap { position: relative; }
+.aclist {
+  position: absolute; top: 100%; left: 0; min-width: 300px; max-height: 260px; overflow-y: auto;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; z-index: 30;
+}
+.aclist div { padding: 7px 12px; cursor: pointer; font-size: 13.5px; }
+.aclist div:hover { background: var(--border); }
+.btn {
+  background: var(--accent); color: #1a1a1a; border: 0; border-radius: 8px;
+  padding: 9px 16px; font-weight: 600; cursor: pointer; font-size: 13.5px;
+}
+.btn.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+.btn.ghost:hover { border-color: var(--accent); }
+.btn.mini { padding: 5px 10px; font-size: 12.5px; }
+.kpis { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 16px; }
+.kpis .v { font-size: 19px; font-weight: 600; color: var(--text); }
+.pos { color: var(--green) !important; }
+.neg { color: var(--red) !important; }
+.autop { font-size: 11.5px; color: var(--muted); padding-bottom: 10px; }
+.cwarn { color: #e0c37f; font-size: 13px; margin-top: 10px; }
+
 @media (max-width: 640px) {
   main { padding: 12px; }
   th, td { padding: 8px 9px; font-size: 13.5px; }
