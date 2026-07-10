@@ -410,8 +410,13 @@ const RET_OPTS = [
   ['0.367', '36.7% - Hideout + power'], ['0.435', '43.5% - ใช้ Focus'],
   ['0.539', '53.9% - Focus + เมืองโบนัส'], ['custom', 'กำหนดเอง...'],
 ];
-let cSet = { ret: '0.248', retc: '24.8', tax: '0.04', setup: '0.025', buy: '3008', sellc: '3008', buyfee: '0', pmode: 'auto' };
-try { Object.assign(cSet, JSON.parse(localStorage.craft_settings || '{}')); } catch {}
+let cSet = { ret: '0.248', retc: '24.8', tax: '0.04', setup: '0.025', buy: '3008', sellc: '3008', buyfee: '0.025', pmode: 'manual', pv: 2 };
+try {
+  const saved = JSON.parse(localStorage.craft_settings || '{}');
+  // pv2: manual entry became the default; drop stale auto-mode prefs saved before that
+  if (!saved.pv) { delete saved.pmode; delete saved.buyfee; }
+  Object.assign(cSet, saved); cSet.pv = 2;
+} catch {}
 let cRecipes = [];
 try { cRecipes = JSON.parse(localStorage.craft_recipes || '[]'); } catch {}
 let cProd = '', cMats = [{ id: '', qty: 1, price: '' }];
@@ -496,8 +501,8 @@ function renderCraft() {
   <div class="crumb"><a href="#">หน้าแรก</a> / \u{1F6E0}️ คำนวณคราฟ</div>
   <div class="panelbox"><h2>ตั้งค่าการคำนวณ</h2><div class="cform">
     <label class="cf">แหล่งราคา <select id="kPMode">
-      <option value="auto" ${cSet.pmode === 'auto' ? 'selected' : ''}>อัตโนมัติจากตลาด (พิมพ์ทับได้)</option>
-      <option value="manual" ${cSet.pmode === 'manual' ? 'selected' : ''}>กรอกเองทั้งหมด</option></select></label>
+      <option value="manual" ${cSet.pmode === 'manual' ? 'selected' : ''}>กรอกเองทั้งหมด</option>
+      <option value="auto" ${cSet.pmode === 'auto' ? 'selected' : ''}>อัตโนมัติจากตลาด (พิมพ์ทับได้)</option></select></label>
     <label class="cf">วิธีซื้อวัตถุดิบ <select id="kBuyFee">
       <option value="0" ${cSet.buyfee === '0' ? 'selected' : ''}>ซื้อทันทีจากที่ตั้งขาย</option>
       <option value="0.025" ${cSet.buyfee === '0.025' ? 'selected' : ''}>ตั้งรับซื้อเอง (+2.5% setup)</option></select></label>
@@ -518,7 +523,7 @@ function renderCraft() {
       <label class="cf acwrap">ไอเทมที่จะคราฟ <input id="kProd" style="width:270px" autocomplete="off"
         placeholder="พิมพ์ชื่อหรือรหัส เช่น bow, T4_2H_BOW" value="${cProd ? esc(nameOf(cProd)) : ''}"></label>
       <label class="cf">จำนวนที่คราฟ <input class="num" id="kQty" type="number" min="1" value="${esc(String(cEd.qty))}"></label>
-      <label class="cf">ราคาขาย/ชิ้น <input class="num" id="kSellP" type="number" placeholder="อัตโนมัติ" value="${esc(String(cEd.sell))}"></label>
+      <label class="cf">ราคาที่จะตั้งขาย/ชิ้น <input class="num" id="kSellP" type="number" placeholder="กรอกราคา" value="${esc(String(cEd.sell))}"></label>
       <label class="cf">ค่า artifact/ครั้ง <input class="num" id="kArt" type="number" value="${esc(String(cEd.art))}"></label>
       <label class="cf">ค่าสถานีคราฟ/ครั้ง <input class="num" id="kFee" type="number" value="${esc(String(cEd.fee))}"></label>
     </div>
@@ -580,7 +585,7 @@ function renderCraft() {
       row.innerHTML =
         `<label class="cf acwrap">วัตถุดิบ ${i + 1} <input style="width:250px" autocomplete="off" placeholder="พิมพ์ชื่อหรือรหัส"></label>` +
         '<label class="cf">จำนวน/ครั้ง <input class="num" type="number" min="0"></label>' +
-        '<label class="cf">ราคา/หน่วย <input class="num" type="number" placeholder="อัตโนมัติ"></label>' +
+        '<label class="cf">ราคาซื้อ/หน่วย <input class="num" type="number" placeholder="กรอกราคา"></label>' +
         '<span class="autop"></span>' +
         '<button class="btn ghost mini">ลบ</button>';
       const [nameIn, qtyIn, priceIn] = row.querySelectorAll('input');
