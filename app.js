@@ -410,7 +410,7 @@ const RET_OPTS = [
   ['0.367', '36.7% - Hideout + power'], ['0.435', '43.5% - ใช้ Focus'],
   ['0.539', '53.9% - Focus + เมืองโบนัส'], ['custom', 'กำหนดเอง...'],
 ];
-let cSet = { ret: '0.248', retc: '24.8', tax: '0.04', setup: '0.025', buy: '3008', sellc: '3008' };
+let cSet = { ret: '0.248', retc: '24.8', tax: '0.04', setup: '0.025', buy: '3008', sellc: '3008', buyfee: '0', pmode: 'auto' };
 try { Object.assign(cSet, JSON.parse(localStorage.craft_settings || '{}')); } catch {}
 let cRecipes = [];
 try { cRecipes = JSON.parse(localStorage.craft_recipes || '[]'); } catch {}
@@ -433,23 +433,24 @@ function offerOf(id, loc) {
 
 function settVals() {
   const ret = cSet.ret === 'custom' ? (Number(cSet.retc) || 0) / 100 : Number(cSet.ret);
-  return { ret, tax: Number(cSet.tax), setup: Number(cSet.setup), buy: Number(cSet.buy), sellc: Number(cSet.sellc) };
+  return { ret, tax: Number(cSet.tax), setup: Number(cSet.setup), buy: Number(cSet.buy),
+           sellc: Number(cSet.sellc), buyfee: Number(cSet.buyfee), manual: cSet.pmode === 'manual' };
 }
 
-// cost/item = returnable mats * (1 - return rate) + artifact + station fee
+// cost/item = returnable mats * (1 + buy-order setup fee) * (1 - return rate) + artifact + station fee
 function craftCalc(mats, art, fee, sellManual, prodId) {
   const s = settVals();
   let mat = 0; const miss = [];
   for (const m of mats) {
     if (!m.id) continue;
-    const auto = offerOf(m.id, s.buy);
+    const auto = s.manual ? null : offerOf(m.id, s.buy);
     const p = (m.price !== '' && m.price != null) ? Number(m.price) : (auto ? auto.p : null);
     if (p == null) { miss.push(nameOf(m.id)); continue; }
     mat += (Number(m.qty) || 0) * p;
   }
-  const cost = mat * (1 - s.ret) + (Number(art) || 0) + (Number(fee) || 0);
+  const cost = mat * (1 + s.buyfee) * (1 - s.ret) + (Number(art) || 0) + (Number(fee) || 0);
   const cut = 1 - s.tax - s.setup;
-  const autoSell = prodId ? offerOf(prodId, s.sellc) : null;
+  const autoSell = (!s.manual && prodId) ? offerOf(prodId, s.sellc) : null;
   const sp = (sellManual !== '' && sellManual != null) ? Number(sellManual) : (autoSell ? autoSell.p : null);
   if (sp == null && prodId) miss.push('ราคาขาย ' + nameOf(prodId));
   const net = sp != null ? sp * cut : null;
@@ -494,6 +495,12 @@ function renderCraft() {
   $('#app').innerHTML = `
   <div class="crumb"><a href="#">หน้าแรก</a> / \u{1F6E0}️ คำนวณคราฟ</div>
   <div class="panelbox"><h2>ตั้งค่าการคำนวณ</h2><div class="cform">
+    <label class="cf">แหล่งราคา <select id="kPMode">
+      <option value="auto" ${cSet.pmode === 'auto' ? 'selected' : ''}>อัตโนมัติจากตลาด (พิมพ์ทับได้)</option>
+      <option value="manual" ${cSet.pmode === 'manual' ? 'selected' : ''}>กรอกเองทั้งหมด</option></select></label>
+    <label class="cf">วิธีซื้อวัตถุดิบ <select id="kBuyFee">
+      <option value="0" ${cSet.buyfee === '0' ? 'selected' : ''}>ซื้อทันทีจากที่ตั้งขาย</option>
+      <option value="0.025" ${cSet.buyfee === '0.025' ? 'selected' : ''}>ตั้งรับซื้อเอง (+2.5% setup)</option></select></label>
     <label class="cf">Return rate <select id="kRet">${retOptions}</select></label>
     <label class="cf" id="kRetCW" style="display:${cSet.ret === 'custom' ? '' : 'none'}">Return rate (%)
       <input class="num" id="kRetC" type="number" step="0.1" min="0" max="90" value="${esc(String(cSet.retc))}"></label>
@@ -531,16 +538,21 @@ function renderCraft() {
 
   function updateOut() {
     const s = settVals();
+    // city pickers only matter when prices come from market data
+    S('kBuy').parentElement.style.display = s.manual ? 'none' : '';
+    S('kSell').parentElement.style.display = s.manual ? 'none' : '';
     // auto-price hints on material rows
     [...S('kMats').children].forEach((row, i) => {
       const hint = row.querySelector('.autop');
       const m = cMats[i];
       if (!hint || !m) return;
-      const ap = m.id ? offerOf(m.id, s.buy) : null;
-      hint.textContent = m.id ? (ap ? 'ตลาด: ' + fmt(ap.p) : 'ไม่มีราคาในข้อมูล') : '';
+      const priceIn = row.querySelectorAll('input')[2];
+      priceIn.placeholder = s.manual ? 'กรอกราคา' : 'อัตโนมัติ';
+      const ap = (!s.manual && m.id) ? offerOf(m.id, s.buy) : null;
+      hint.textContent = (m.id && !s.manual) ? (ap ? 'ตลาด: ' + fmt(ap.p) : 'ไม่มีราคาในข้อมูล') : '';
     });
-    const apSell = cProd ? offerOf(cProd, s.sellc) : null;
-    S('kSellP').placeholder = apSell ? fmt(apSell.p) : 'อัตโนมัติ';
+    const apSell = (!s.manual && cProd) ? offerOf(cProd, s.sellc) : null;
+    S('kSellP').placeholder = s.manual ? 'กรอกราคา' : (apSell ? fmt(apSell.p) : 'อัตโนมัติ');
 
     const qty = Number(cEd.qty) || 1;
     const r = craftCalc(cMats, cEd.art, cEd.fee, cEd.sell, cProd);
@@ -556,7 +568,8 @@ function renderCraft() {
       kpi('Margin', r.profit != null && r.cost > 0 ? (100 * r.profit / r.cost).toFixed(1) + '%' : '-') +
       kpi('ราคาคุ้มทุน', r.be != null ? fmt(Math.ceil(r.be)) : '-');
     S('kWarn').textContent = r.miss.length
-      ? 'ไม่มีราคาของ: ' + r.miss.join(', ') + ' (กรอกราคาเองได้)' : '';
+      ? (s.manual ? 'ยังไม่ได้กรอกราคา: ' : 'ไม่มีราคาของ: ') + r.miss.join(', ') +
+        (s.manual ? '' : ' (กรอกราคาเองได้)') : '';
   }
 
   function renderMatRows() {
@@ -611,6 +624,7 @@ function renderCraft() {
   bindSet('kRet', 'ret', () => { S('kRetCW').style.display = cSet.ret === 'custom' ? '' : 'none'; });
   bindSet('kRetC', 'retc'); bindSet('kTax', 'tax'); bindSet('kSetup', 'setup');
   bindSet('kBuy', 'buy'); bindSet('kSell', 'sellc');
+  bindSet('kPMode', 'pmode'); bindSet('kBuyFee', 'buyfee');
 
   const bindEd = (id, key) => S(id).addEventListener('input', () => { cEd[key] = S(id).value; updateOut(); });
   bindEd('kQty', 'qty'); bindEd('kSellP', 'sell'); bindEd('kArt', 'art'); bindEd('kFee', 'fee');
